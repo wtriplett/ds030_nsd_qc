@@ -1,0 +1,253 @@
+---
+title: "ds030 Various QC Measures"
+date: "May 25, 2016"
+output: 
+  pdf_document: 
+    fig_caption: yes
+    fig_height: 5
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(reshape2)
+library(plyr)
+library(knitr)
+```
+
+# mriqc from github commit 3b4ae89
+I've run a more recent version of mriqc, but it is a bit too new and there are a few issues that caused a couple of anatomical scans not to be processed. For that reason I'm sticking with commit 3b4ae89.
+
+## Anatomical measures
+```{r}
+aMRIQC <- read.csv("mriqcp_3b4ae89/aMRIQC.csv")
+```
+Note that only a select number of measures are chosen among all of the ones reported:
+```{r, echo=FALSE}
+names(aMRIQC)
+```
+Select measures, rename to more verbose/descriptive name for titles.
+```{r}
+aMRIQC.m <- melt(aMRIQC, id.vars=c("subject", "session", "scan"), 
+                 measure.vars=c("snr", "cnr", "fber", "efc", "qi1", "fg_mean"))
+aMRIQC.m$variable <- as.character(aMRIQC.m$variable)
+aMRIQC.m$var_long <- rep(NA, nrow(aMRIQC.m))
+aMRIQC.m$var_long[aMRIQC.m$variable == 'fber'] <- 'Foreground-background energy ratio'
+aMRIQC.m$var_long[aMRIQC.m$variable == 'fg_mean'] <- 'Mean foreground'
+aMRIQC.m$var_long[aMRIQC.m$variable == 'efc'] <- 'Entropy focus criterion'
+aMRIQC.m$var_long[aMRIQC.m$variable == 'qi1'] <- 'Artifact detection'
+aMRIQC.m$var_long[aMRIQC.m$variable == 'cnr'] <- 'Contrast-to-noise ratio'
+aMRIQC.m$var_long[aMRIQC.m$variable == 'snr'] <- 'Signal-to-noise ratio'
+```
+Creates a paneled histogram of the measures included in the above
+```{r, message=FALSE}
+p <- ggplot(aMRIQC.m, aes(x=value)) +
+  geom_bar(fill="#CECECE", color="black", size=0.5) + 
+  facet_wrap(~var_long, scale='free_x', ncol=2) + 
+  theme_bw(base_size=12) + theme(panel.grid=element_blank()) +
+  labs(x="QC Measure Value", y="Count", 
+       title="Distribution of QC measure for T1-weighted Data")
+#ggsave(filename='Figure_X_amriqc_selected.pdf', w=8, h=4.5, plot=p)
+print(p)
+```
+
+
+## Functional measures
+```{r}
+fMRIQC <- read.csv("mriqcp_3b4ae89/fMRIQC.csv")
+```
+Similarly to Anatomical, only a select number of measures are chosen among all of the ones reported:
+```{r, echo=FALSE}
+names(fMRIQC)
+```
+Select measures, rename to more verbose/descriptive name for titles.
+```{r}
+fMRIQC.m <- melt(fMRIQC, id.vars=c("subject", "session", "scan"), 
+                 measure.vars=c("fber", "dvars", "ghost_y", "mean_fd", "m_tsnr", "snr"))
+fMRIQC.m$variable <- as.character(fMRIQC.m$variable)
+fMRIQC.m$var_long <- rep(NA, nrow(fMRIQC.m))
+fMRIQC.m$var_long[fMRIQC.m$variable == 'fber'] <- 'Foreground-background energy ratio'
+fMRIQC.m$var_long[fMRIQC.m$variable == 'dvars'] <- 'Temporal derivative of RMS variance'
+fMRIQC.m$var_long[fMRIQC.m$variable == 'ghost_y'] <- 'Ghosting in y direction'
+fMRIQC.m$var_long[fMRIQC.m$variable == 'mean_fd'] <- 'Mean framewise displacement'
+fMRIQC.m$var_long[fMRIQC.m$variable == 'm_tsnr'] <- 'Mean temporal signal-to-noise ratio'
+fMRIQC.m$var_long[fMRIQC.m$variable == 'snr'] <- 'Signal-to-noise ratio'
+```
+Creates a paneled histogram of the measures included in the `melt`
+```{r, message=FALSE}
+p <- ggplot(fMRIQC.m, aes(x=value)) + 
+  geom_bar(fill="#CECECE", color="black") + 
+  facet_wrap(~var_long, scale='free', ncol=2) + 
+  theme_bw(base_size=12) + theme(panel.grid=element_blank()) +
+  labs(x="QC Measure Value", y="Count", 
+       title="Distribution of QC measure for BOLD-contrast fMRI Data")
+#ggsave(filename='Figure_X_amriqc_selected.pdf', w=8, h=4.5, plot=p)
+print(p)
+```
+
+
+## Diffusion-weighted QC measures
+
+### Automated DWI QC
+Please see https://github.com/poldracklab/dtiqc_used_for_ds030 for the code used to produce the automated QC measures. This code performs skull stripping, eddy correction, and DTI measure computation. Then, from the outputs of those steps computes framewise displacement (FD), relative signal-to-noise ratio (SNR), and the interleave correlation (IC) from `ref`.
+
+Load in the estimated, whole-brain (within the skull stripping mask) fractional anisotropy (FA) and mean diffusivity (MD). Also determine the subject's study group based on their numeric subject id prefix:
+```{r}
+dti <- read.delim("ds030_dtiqa_fa_md_compiled.tsv")
+dti$study_group <- gsub("^sub-([0-9]).+", "\\1-Series", as.character(dti$subject))
+dti$study_group[dti$study_group == '1-Series'] <- "CONTROL"
+dti$study_group[dti$study_group == '5-Series'] <- "SCHZ"
+dti$study_group[dti$study_group == '6-Series'] <- "BIPOLAR"
+dti$study_group[dti$study_group == '7-Series'] <- "ADHD"
+kable(dti[1:5,], caption="Structure of `ds030_dtiqa_fa_md_compiled.tsv`")
+```
+
+Read the FD, SNR, and IC values -- these are per TR (volume) measurements:
+```{r}
+dtiqc <- read.delim("ds030_dtiqa_compiled.tsv", stringsAsFactors=FALSE)
+kable(dtiqc[c(1,2,3,4,100,300,400,10000),], digits=3, 
+      caption="Structure of `ds030_dtiqa_compiled.tsv`")
+```
+
+Compute the means, sds for the above:
+```{r}
+dtiqc.summary <- ddply(dtiqc, .(subject), summarize, 
+                       mean_snr=mean(snr), sd_snr=sd(snr), 
+                       mean_fd=mean(fd), sd_fd=sd(fd), 
+                       mean_ic=mean(interleave_corr), sd_ic=sd(interleave_corr))
+kable(dtiqc.summary[1:5,], digits=3, caption="Summary mean and std. dev for automated QC measures.")
+```
+
+
+### Manual DWI QC Ratings
+From the original investigators come a set of manually ratings for the DWI with comments about visible artifacts and such:
+```{r}
+CNP_DTI_QA <- read.delim("CNP_DTI_QA - Sheet1.tsv", na.strings=c(""), 
+                         stringsAsFactors=FALSE)
+names(CNP_DTI_QA)[1] <- "subject_num"
+names(CNP_DTI_QA)[2] <- "subject_num_func"
+CNP_DTI_QA$subject <- sprintf("sub-%d", CNP_DTI_QA$subject_num)
+kable(t(CNP_DTI_QA[c(2,7,212),]), caption="Manual ratings from `CNP_DTI_QA - Sheet1.tsv` (transposed).")
+```
+
+### Combined Manual/Automatic DWI QC
+Merge the manual and auto (averages/sd) into a single table:
+```{r}
+dti.merged <- (merge(CNP_DTI_QA, dti, by=c("subject"), all=T))
+# fix typo
+dti.merged$ImgA_DTI_QA_S[dti.merged$ImgA_DTI_QA_S == "4-UNSUABLE"] <- "4-UNUSABLE"
+dti.merged$ImgA_DTI_QA_S <- as.character(dti.merged$ImgA_DTI_QA_S)
+# case where there is data but no rating...
+dti.merged$ImgA_DTI_QA_S[! is.na(dti.merged$mean_fa) & dti.merged$ImgA_DTI_QA_S == '0-NO_DATA'] <- '5-NOT_RATED'
+# seriously, there are not rated
+dti.merged$ImgA_DTI_QA_S[is.na(dti.merged$ImgA_DTI_QA_S)] <- '5-NOT_RATED'
+# get rid of any hitchhikers riding in from manual QC data whoare not in ds030 proper.
+dti.merged <- dti.merged[!is.na(dti.merged$study_group),]
+kable(t(dti.merged[c(2,7,212),]), caption="Manual ratings merged with mean FA, MD, etc.")
+```
+
+A few plots that were proposed... first was a breakdown of the manual ratings for all of the datasets regardless of disorder
+```{r, fig.width=5.0, fig.height=7.0, fig.cap="The side legend is redundant if the in-figure labels are left in."}
+sz <- 3
+p <- ggplot(dti.merged, aes(x=factor("DWI Datasets")))
+p + geom_bar(color='black', aes(fill=ImgA_DTI_QA_S)) + 
+  scale_fill_grey(start=0.2, end=1.0) + 
+  theme_bw(base_size=13) + theme(panel.grid=element_blank()) + 
+  # turn off the guide if desired
+  #guides(fill=FALSE) +
+  labs(x="", y="Number of DWI Datasets", fill="Quality Rating", 
+       title="Semi-automatic DWI\nQuality Assessment") + 
+  annotate(geom='text', x=1, y=258-5, label='4-UNUSABLE', size=sz) + 
+  annotate(geom='text', x=1, y=234-5, label='3-FAIR', size=sz) + 
+  annotate(geom='text', x=1, y=196-5, label='2-GOOD', color='white', size=sz) + 
+  annotate(geom='text', x=1, y=92-5, label='1-EXCELLENT', color='white', size=sz) + 
+  annotate(geom='text', x=1, y=279-5, label='5-NOT_RATED', size=sz)
+```
+
+This is basically the same idea as the above, but it reports the percentage of manual QC ratings by study/disorder group. Its expressed as a percent since there are a variable number of scans per disorder group.
+```{r, fig.cap="Breakdown of manual QC by disorder"}
+qa.totals <- ddply(transform(dti.merged, count=1), 
+                   .(study_group, ImgA_DTI_QA_S), 
+                   summarize, total=sum(count))
+qa.totals.sub <- ddply(transform(dti.merged, count=1), 
+                       .(study_group), summarize, total=sum(count))
+qa.totals.merged <-merge(qa.totals, qa.totals.sub, by=c('study_group'))
+qa.totals.merged$percentage <- qa.totals.merged$total.x/qa.totals.merged$total.y * 100
+
+p <- ggplot(qa.totals.merged, aes(x=factor(study_group), y=percentage))
+p + geom_bar(stat='identity', color='black', aes(fill=ImgA_DTI_QA_S)) + 
+  scale_fill_grey(start=0.2, end=1.0) + 
+  theme_bw() + theme(panel.grid=element_blank()) + 
+  labs(x="", y="Percentage of DWI Datasets", fill="Quality Rating", 
+       title="Semi-automatic DWI Quality Assessment") 
+```
+
+Finally, merge in the automated QC with manual and FA, MD, etc.
+```{r}
+`%notin%` <- function(x,y) !(x %in% y) 
+dti.all <- merge(dti.merged, dtiqc.summary)
+kable(t(dti.all[c(2,7,212),]), caption="Structure of kitchen sink data frame.")
+```
+
+For plotting, just melt them down to the main measurements. 
+```{r}
+dti.all.m <- melt(dti.all, 
+                  id.vars=c("subject", "ImgA_DTI_QA_S", "ImgA_FLAG_DTI_S"), 
+                  measure.vars=c("mean_fa", "sd_fa", "mean_md", "sd_md", "mean_snr", 
+                                 "sd_snr", "mean_fd", "sd_fd", "mean_ic", "sd_ic"))
+```
+
+Then, translate the graduated manual rating to a mostly-binary rating scale and add descriptive field names to complement the abbreviated measure names:
+```{r}
+dti.all.m$Usability <- rep(NA, nrow(dti.all.m))
+dti.all.m$Usability[dti.all$ImgA_DTI_QA_S == "4-UNUSABLE"] <- "UNUSABLE"
+dti.all.m$Usability[dti.all$ImgA_DTI_QA_S != "4-UNUSABLE"] <- "USABLE"
+dti.all.m$Usability[dti.all$ImgA_DTI_QA_S == "5-NOT_RATED"] <- "NOT RATED"
+dti.all.m <- dti.all.m[dti.all.m$variable %notin% c('mean_md', 'sd_md'),]
+# well, ok.
+dti.all.m$Measure <- sub('fd', 'Framewise Disp.', 
+                         sub('ic', 'Interleave Corr.', 
+                             sub('snr', 'Signal to noise', 
+                                 sub('fa', 'Frac. Anis.', 
+                                     sub('sd_', 'Std. Dev. ', 
+                                         sub('mean_', 'Avg. ', dti.all.m$variable))))))
+# this imposes an ordering on them for when they're faceted in the plot.
+dti.all.m$Measure <- factor(dti.all.m$Measure, levels=c("Avg. Frac. Anis.", 
+                            "Std. Dev. Frac. Anis.", 
+                            "Avg. Signal to noise", 
+                            "Std. Dev. Signal to noise",
+                            "Avg. Framewise Disp.",
+                            "Std. Dev. Framewise Disp.", 
+                            "Avg. Interleave Corr.",
+                            "Std. Dev. Interleave Corr."))
+kable(t(dti.all.m[c(1, 500, 1000),]), 
+      caption="Manual ratings merged with mean FA, MD, etc.")
+```
+
+Plot each autmated QC measure and color the bars according to the graduated manual rating:
+```{r, message=FALSE, fig.height=8}
+p <- ggplot(dti.all.m, aes(x=value)) + 
+  geom_bar(aes(fill=ImgA_DTI_QA_S), color='black') + 
+  facet_wrap(~variable, scale='free', ncol=2) + theme_bw() + 
+  theme(legend.position="top") +
+  labs(x="Value", y="Count", title="dtiqc output for ds030",fill='Manual QC\nRating')
+p
+```
+
+A version of the above with binary manual rating and less color, perhaps better for publication:
+```{r, message=FALSE, fig.height=8}
+colors <- c('#000000', '#999999', '#ffffff')
+p <- ggplot(dti.all.m, aes(x=value)) +
+  geom_bar(aes(fill=Usability), color='#000000', size=0.35) + 
+  facet_wrap(~Measure, scale='free', ncol=2) + 
+  theme_bw() + theme(panel.grid=element_blank(), legend.position="top") +
+  scale_fill_manual(values=colors) + 
+  labs(x="Measured Value (arb. units)", y="Count",
+       title="Manual and Automated Quality Ratings for Diffusion-weighted scans",
+       fill='Manual Quality\nRating')
+p
+```
+
+
