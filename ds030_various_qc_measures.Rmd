@@ -88,9 +88,9 @@ print(p)
 ```
 
 
-## Diffusion-weighted QC measures
+# Diffusion-weighted QC measures
 
-### Automated DWI QC
+## Automated DWI QC
 Please see https://github.com/poldracklab/dtiqc_used_for_ds030 for the code used to produce the automated QC measures. This code performs skull stripping, eddy correction, and DTI measure computation. Then, from the outputs of those steps computes framewise displacement (FD), relative signal-to-noise ratio (SNR), and the interleave correlation (IC) from `ref`.
 
 Load in the estimated, whole-brain (within the skull stripping mask) fractional anisotropy (FA) and mean diffusivity (MD). Also determine the subject's study group based on their numeric subject id prefix:
@@ -121,7 +121,7 @@ kable(dtiqc.summary[1:5,], digits=3, caption="Summary mean and std. dev for auto
 ```
 
 
-### Manual DWI QC Ratings
+## Manual DWI QC Ratings
 From the original investigators come a set of manually ratings for the DWI with comments about visible artifacts and such:
 ```{r}
 CNP_DTI_QA <- read.delim("CNP_DTI_QA - Sheet1.tsv", na.strings=c(""), 
@@ -132,7 +132,7 @@ CNP_DTI_QA$subject <- sprintf("sub-%d", CNP_DTI_QA$subject_num)
 kable(t(CNP_DTI_QA[c(2,7,212),]), caption="Manual ratings from `CNP_DTI_QA - Sheet1.tsv` (transposed).")
 ```
 
-### Combined Manual/Automatic DWI QC
+## Combined Manual/Automatic DWI QC
 Merge the manual and auto (averages/sd) into a single table:
 ```{r}
 dti.merged <- (merge(CNP_DTI_QA, dti, by=c("subject"), all=T))
